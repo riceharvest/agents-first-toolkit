@@ -1252,6 +1252,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // POSIX absolute-path semantics
     fn absolute_path_refused() {
         let req = BatchRequest::from_json(
             r#"{"edits":[{"path":"/etc/passwd","old_string":"a","new_string":"b"}]}"#,
@@ -1264,6 +1265,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // requires real symlink support
     fn symlinked_dir_escape_refused() {
         // Symlinked DIRECTORY pointing outside cwd: writing through it is refused.
         let dir = tmpdir();
@@ -1481,6 +1483,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(unix)] // requires real symlink support
     fn symlink_escape_refused_real() {
         let dir = tmpdir();
         let outside = tmpdir();

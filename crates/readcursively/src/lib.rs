@@ -384,6 +384,7 @@ fn collect_files(
     let hard_cap = 1_000_000usize; // absolute file ceiling; keep memory sane even on huge repos
     let mut builder = WalkBuilder::new(&root);
     builder.hidden(!req.hidden);
+    builder.require_git(false); // honor .gitignore even outside a git repo
     builder.git_ignore(req.respect_ignore);
     builder.git_global(req.respect_ignore);
     builder.git_exclude(req.respect_ignore);
