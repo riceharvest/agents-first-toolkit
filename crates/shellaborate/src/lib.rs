@@ -1220,6 +1220,7 @@ mod tests {
         assert_eq!(b.stdout.as_deref(), Some("survivor\n"));
     }
 
+    #[cfg(unix)] // uses sh: sleep, POSIX kill timing
     #[tokio::test]
     async fn timeout_kills() {
         let mut s = step("sleep 5 && echo late");
@@ -1236,6 +1237,7 @@ mod tests {
         assert!(r.elapsed_ms < 2000, "kill took too long: {}", r.elapsed_ms);
     }
 
+    #[cfg(unix)] // uses sh: $FOO, $(pwd), cd /tmp
     #[tokio::test]
     async fn env_merge_and_cd_strip() {
         let mut s = step("echo $FOO in $(pwd)");
@@ -1421,8 +1423,13 @@ mod tests {
         .unwrap();
         // dedupe: overlapping specs must not duplicate files
         assert_eq!(arts.len(), 2);
-        let paths: Vec<&str> = arts.iter().map(|a| a.path.as_str()).collect();
-        assert!(paths.contains(&"logs/a.txt") && paths.contains(&"logs/b.txt"));
+        let paths: Vec<String> = arts
+            .iter()
+            .map(|a| a.path.replace('\\', "/")) // Windows separators
+            .collect();
+        assert!(
+            paths.contains(&"logs/a.txt".to_string()) && paths.contains(&"logs/b.txt".to_string())
+        );
     }
 
     #[test]
