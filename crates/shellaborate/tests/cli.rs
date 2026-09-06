@@ -356,8 +356,14 @@ fn audit_secret_env_is_sanitized() {
         "ambient leak: {stdout}"
     );
     let v: serde_json::Value = serde_json::from_str(&stdout).unwrap();
-    // wc -c on empty input prints 0 (no newline) => "0\n"
-    assert_eq!(v["results"][0]["stdout"], serde_json::json!("0\n"), "{v}");
+    // wc -c on empty input prints 0; BSD wc pads with spaces, GNU does not.
+    let n: u64 = v["results"][0]["stdout"]
+        .as_str()
+        .expect("stdout is a string")
+        .trim()
+        .parse()
+        .expect("wc -c output is a number");
+    assert_eq!(n, 0, "ambient env must not reach the step: {v}");
 }
 
 #[test]
@@ -380,7 +386,8 @@ fn audit_cwd_escape_rejected_both_ways() {
 fn audit_output_dos_capped() {
     // 10MB flood must be capped at 5MiB + one read chunk, flagged, and the
     // process must stay small (no OOM).
-    let req = r#"{"steps":[{"cmd":"yes | head -c 10M","timeout_ms":15000}]}"#;
+    // head -c with a plain byte count works on both GNU and BSD; 6MiB > 5MiB cap.
+    let req = r#"{"steps":[{"cmd":"yes | head -c 6291456","timeout_ms":15000}]}"#;
     let (code, out, _) = run_cli(&[], req);
     assert_eq!(code, 0, "the command itself succeeds: {out}");
     let v: serde_json::Value = serde_json::from_str(&out).unwrap();

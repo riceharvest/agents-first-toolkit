@@ -184,7 +184,10 @@ fn traversal_and_absolute_refused_via_cli() {
             format!(r#"{{"edits":[{{"path":"{bad}","old_string":"a","new_string":"b"}}]}}"#);
         let (code, stdout, _) = run_with_stdin(&[], &payload, &dir);
         assert_eq!(code, Some(1), "{bad}: {stdout}");
-        assert!(stdout.contains("refused"), "{stdout}");
+        // "refused" (validation) or "refusing" (executor escape check) — on
+        // Windows a rooted path like /etc/passwd is not is_absolute(), so it
+        // reaches the executor's resolves_inside refusal instead.
+        assert!(stdout.contains("refus"), "{stdout}");
     }
     let _ = std::fs::remove_dir_all(&dir);
 }
