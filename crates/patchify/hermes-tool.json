@@ -1,0 +1,129 @@
+{
+  "description": "Batch edits + writes + verify commands in one atomic tool call. Edits apply in order with exact-string matching and rollback on any mismatch.",
+  "exit_codes": {
+    "0": "all edits and writes applied",
+    "1": "rolled back, failed, or invalid request",
+    "2": "usage / IO error (no JSON, unreadable input)"
+  },
+  "input": {
+    "properties": {
+      "allow_outside": {
+        "default": false,
+        "description": "UNSAFE: permit absolute paths and symlink escapes outside the working directory",
+        "type": "boolean"
+      },
+      "dry_run": {
+        "default": false,
+        "description": "validate + return diff previews, write nothing",
+        "type": "boolean"
+      },
+      "edits": {
+        "description": "exact-string edits applied in order; multiple edits to the same path compose (each matches the previous edit's result); first mismatch rolls back the whole batch",
+        "items": {
+          "properties": {
+            "new_string": {
+              "description": "replacement literal; max 2MiB; empty string = deletion",
+              "type": "string"
+            },
+            "old_string": {
+              "description": "exact literal text to find; must occur exactly once unless replace_all; non-empty; max 2MiB; NOT a regex",
+              "type": "string"
+            },
+            "path": {
+              "description": "path relative to cwd; absolute and ../ refused unless allow_outside",
+              "type": "string"
+            },
+            "replace_all": {
+              "default": false,
+              "description": "replace every occurrence instead of requiring exactly one",
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "path",
+            "old_string",
+            "new_string"
+          ],
+          "type": "object"
+        },
+        "maxItems": 50,
+        "type": "array"
+      },
+      "verify": {
+        "description": "shell commands run after edits+writes land; use for cargo check / git diff --stat so one call covers patch+verify",
+        "items": {
+          "properties": {
+            "cmd": {
+              "description": "run via sh -c in the working directory; verify failure does NOT roll back edits",
+              "type": "string"
+            }
+          },
+          "required": [
+            "cmd"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "writes": {
+        "description": "create or overwrite whole files; applied AFTER edits; duplicate paths: last wins",
+        "items": {
+          "properties": {
+            "content": {
+              "description": "full file content; max 2MiB",
+              "type": "string"
+            },
+            "create_dirs": {
+              "default": true,
+              "description": "mkdir -p missing parent directories",
+              "type": "boolean"
+            },
+            "path": {
+              "description": "path relative to cwd",
+              "type": "string"
+            }
+          },
+          "required": [
+            "path",
+            "content"
+          ],
+          "type": "object"
+        },
+        "maxItems": 50,
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "limits": {
+    "max_edits": 50,
+    "max_file_bytes": 5242880,
+    "max_string_bytes": 2097152,
+    "max_writes": 50
+  },
+  "name": "patchify",
+  "output": {
+    "edits": [
+      {
+        "applied": true,
+        "diff_preview": "...",
+        "error": null,
+        "ok": true,
+        "path": "...",
+        "replacements": 1
+      }
+    ],
+    "status": "applied|rolled_back|dry_run",
+    "verify": [
+      {
+        "cmd": "...",
+        "duration_ms": 12,
+        "exit": 0,
+        "stderr": "...",
+        "stdout": "..."
+      }
+    ],
+    "writes": "[...]"
+  },
+  "version": "0.2.0"
+}

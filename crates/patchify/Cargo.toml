@@ -1,0 +1,41 @@
+[package]
+name = "patchify"
+version = "0.2.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Batch edits: read_file + patch + write_file in one tool call (read->patch 10.7%, patch->patch 49.6%, write->terminal 54%). Pure Rust."
+repository = "https://github.com/riceharvest/agents-first-toolkit"
+readme = "README.md"
+
+[lib]
+name = "patchify"
+path = "src/lib.rs"
+
+[[bin]]
+name = "patchify"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
+rayon = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+zip = { version = "0.6", default-features = false, features = ["deflate"] }

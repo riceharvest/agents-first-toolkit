@@ -1,0 +1,110 @@
+{
+  "description": "Batch code intelligence: run parallel ripgrep-style regex searches and parallel file reads in ONE call. Supports globs, file-type filters, auto_read chaining (search results feed file reads automatically), 1-indexed offset/limit reads, binary skip, gitignore respect, and adversarial caps (max_results, max_file_size, max_total_chars, max_depth).",
+  "input_schema": {
+    "anyOf": [
+      {
+        "required": [
+          "searches"
+        ]
+      },
+      {
+        "required": [
+          "reads"
+        ]
+      }
+    ],
+    "properties": {
+      "auto_read": {
+        "description": "Return contents of every file hit by searches too",
+        "type": "boolean"
+      },
+      "auto_read_limit": {
+        "description": "Line cap per auto-read file (default 2000)",
+        "type": "integer"
+      },
+      "follow_symlinks": {
+        "description": "Follow symlinked dirs (default false)",
+        "type": "boolean"
+      },
+      "hidden": {
+        "description": "Include hidden files (default false)",
+        "type": "boolean"
+      },
+      "max_depth": {
+        "type": "integer"
+      },
+      "max_file_size": {
+        "description": "Skip files over this many bytes (default 5242880)",
+        "type": "integer"
+      },
+      "max_results": {
+        "type": "integer"
+      },
+      "max_total_chars": {
+        "description": "Truncate total output (default 500000)",
+        "type": "integer"
+      },
+      "reads": {
+        "description": "Parallel file reads (deduplicated)",
+        "items": {
+          "properties": {
+            "limit": {
+              "description": "Max lines to return",
+              "type": "integer"
+            },
+            "offset": {
+              "description": "1-indexed first line",
+              "type": "integer"
+            },
+            "path": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "path"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "respect_ignore": {
+        "description": "Respect .gitignore (default true)",
+        "type": "boolean"
+      },
+      "root": {
+        "description": "Root directory for relative paths and searches (default: cwd)",
+        "type": "string"
+      },
+      "searches": {
+        "description": "Parallel regex searches over file contents",
+        "items": {
+          "properties": {
+            "file_type": {
+              "description": "Optional type filter: rust/python/js/ts/go/md/json/toml/yaml/sh/c/cpp/text/html/css",
+              "type": "string"
+            },
+            "glob": {
+              "description": "Optional glob filter, e.g. *.rs or src/**/*.ts",
+              "type": "string"
+            },
+            "max_results": {
+              "description": "Per-query hit cap (default 200)",
+              "type": "integer"
+            },
+            "pattern": {
+              "description": "Ripgrep-style regex",
+              "type": "string"
+            }
+          },
+          "required": [
+            "pattern"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "name": "readcursively"
+}

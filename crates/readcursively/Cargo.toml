@@ -1,0 +1,42 @@
+[package]
+name = "readcursively"
+version = "0.1.1"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Batch code intelligence: search_files + grep + read_file in one tool call (66k ops, search->read 32% chain). Pure Rust."
+repository = "https://github.com/riceharvest/agents-first-toolkit"
+readme = "README.md"
+
+[lib]
+name = "readcursively"
+path = "src/lib.rs"
+
+[[bin]]
+name = "readcursively"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+globset = { workspace = true }
+ignore = "0.4"
+regex = { workspace = true }
+rayon = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(target_os = "windows")'.dependencies]
+zip = { version = "0.6", default-features = false, features = ["deflate"] }

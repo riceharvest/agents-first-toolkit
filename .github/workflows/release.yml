@@ -1,0 +1,179 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+env:
+  BINS: shellaborate patchify curlosity readcursively recurlsively
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: x86_64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: aarch64-unknown-linux-musl
+            os: ubuntu-latest
+            archive: tar.gz
+          - target: x86_64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: aarch64-apple-darwin
+            os: macos-latest
+            archive: tar.gz
+          - target: x86_64-pc-windows-msvc
+            os: windows-latest
+            archive: zip
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install cross-compilation tools (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y musl-tools llvm
+
+      - name: Build release binaries (aarch64 musl via cross)
+        if: matrix.target == 'aarch64-unknown-linux-musl'
+        run: |
+          cargo install cross --locked
+          for bin in $BINS; do
+            cross build --release --bin "$bin" --target aarch64-unknown-linux-musl
+          done
+
+      - name: Build release binaries
+        if: matrix.target != 'aarch64-unknown-linux-musl'
+        shell: bash
+        run: |
+          for bin in $BINS; do
+            cargo build --release --bin "$bin" --target ${{ matrix.target }}
+          done
+
+      - name: Strip binaries (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          for bin in $BINS; do
+            llvm-strip "target/${{ matrix.target }}/release/$bin"
+          done
+
+      - name: Strip binaries (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          for bin in $BINS; do
+            strip "target/${{ matrix.target }}/release/$bin"
+          done
+
+      - name: Package (tar.gz)
+        if: matrix.archive == 'tar.gz'
+        shell: bash
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          for bin in $BINS; do
+            DIR="${bin}-${VERSION}-${{ matrix.target }}"
+            mkdir -p "$DIR"
+            cp "target/${{ matrix.target }}/release/$bin" "$DIR/"
+            tar czf "$DIR.tar.gz" "$DIR"
+            sha256sum "$DIR.tar.gz" >> checksums.txt
+            rm -rf "$DIR"
+          done
+
+      - name: Package (zip)
+        if: matrix.archive == 'zip'
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.Substring(1)
+          $bins = $env:BINS -split ' '
+          foreach ($bin in $bins) {
+            $dir = "$bin-$version-${{ matrix.target }}"
+            New-Item -ItemType Directory -Force -Path "$dir" | Out-Null
+            Copy-Item "target/${{ matrix.target }}/release/$bin.exe" "$dir/"
+            Compress-Archive -Path "$dir" -DestinationPath "$dir.zip"
+            $hash = (Get-FileHash "$dir.zip" -Algorithm SHA256).Hash.ToLower()
+            "$hash  $dir.zip" | Out-File -FilePath checksums.txt -Append
+            Remove-Item -Recurse -Force "$dir"
+          }
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.target }}
+          path: |
+            *.tar.gz
+            *.zip
+            checksums.txt
+          retention-days: 90
+
+  release:
+    name: publish release
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Assemble SHA256SUMS and validate
+        run: |
+          cd dist
+          # checksums.txt exists per-target; keep only the 5 lines per target OS archive type
+          find . -name checksums.txt -exec cat {} \; | sort > SHA256SUMS
+          find . -name checksums.txt -delete
+          ARCHIVES=$(ls *.tar.gz *.zip | wc -l)
+          LINES=$(wc -l < SHA256SUMS)
+          if [ "$LINES" -ne "$ARCHIVES" ]; then
+            echo "SHA256SUMS has $LINES lines for $ARCHIVES archives"
+            exit 1
+          fi
+          sha256sum -c SHA256SUMS
+          echo "All release asset checksums validated."
+
+      - name: Create release and upload assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --cleanup-tag 2>/dev/null || true
+          sleep 5
+          gh release create "$GITHUB_REF_NAME" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "agents-first-toolkit $GITHUB_REF_NAME" \
+            --notes "Prebuilt binaries for agents-first-toolkit $GITHUB_REF_NAME.
+
+          ## Targets
+          - x86_64-unknown-linux-musl (static)
+          - aarch64-unknown-linux-musl (static)
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+
+          ## Crates
+          - shellaborate (agentic-shell)
+          - patchify (agentic-edit)
+          - curlosity (agentic-web)
+          - readcursively (agentic-code)
+          - recurlsively (agentic-web)
+
+          ## Verify
+          \`\`\`bash
+          sha256sum -c SHA256SUMS
+          \`\`\`
+          " \
+            dist/*.tar.gz dist/*.zip dist/SHA256SUMS

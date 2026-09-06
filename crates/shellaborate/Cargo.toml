@@ -1,0 +1,45 @@
+[package]
+name = "shellaborate"
+version = "0.3.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "Batch shell: terminal + git + gh + execute_code + process in one DAG (terminal->terminal 71.9%, 99k). Pure Rust."
+repository = "https://github.com/riceharvest/agents-first-toolkit"
+readme = "README.md"
+
+[lib]
+name = "shellaborate"
+path = "src/lib.rs"
+
+[[bin]]
+name = "shellaborate"
+path = "src/main.rs"
+
+[dependencies]
+tokio = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+clap = { workspace = true }
+clap_complete = { workspace = true }
+clap_mangen = { workspace = true }
+reqwest = { workspace = true }
+sha2 = { workspace = true }
+url = { workspace = true }
+flate2 = { workspace = true }
+tar = { workspace = true }
+glob = { workspace = true }
+globset = { workspace = true }
+regex = { workspace = true }
+rayon = { workspace = true }
+tempfile = { workspace = true }
+
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
+[target.'cfg(target_os = "windows")'.dependencies]
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
