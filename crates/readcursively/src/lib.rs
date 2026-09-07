@@ -1392,8 +1392,7 @@ mod tests {
         std::fs::create_dir_all(&root).unwrap();
         std::fs::write(dir.path().join("outside.txt"), "leak\n").unwrap();
         #[cfg(unix)]
-        std::os::unix::fs::symlink(dir.path().join("outside.txt"), root.join("link.txt"))
-            .unwrap();
+        std::os::unix::fs::symlink(dir.path().join("outside.txt"), root.join("link.txt")).unwrap();
         let req = BatchRequest {
             searches: vec![],
             reads: vec![ReadRequest {
