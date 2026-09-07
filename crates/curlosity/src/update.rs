@@ -1,4 +1,4 @@
-//! `agentic-web --update` — self-update from GitHub Releases.
+//! `curlosity --update` — self-update from GitHub Releases.
 
 const REPO: &str = "riceharvest/agents-first-toolkit";
 const BIN: &str = "curlosity";

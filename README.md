@@ -52,7 +52,7 @@ curl -fsSL https://raw.githubusercontent.com/riceharvest/agents-first-toolkit/ma
 curl -fsSL https://raw.githubusercontent.com/riceharvest/agents-first-toolkit/main/crates/readcursively/install.sh | sh
 
 # recurlsively
-curl -fsSL https://raw.githubusercontent/riceharvest/agents-first-toolkit/main/crates/recurlsively/install.sh | sh
+curl -fsSL https://raw.githubusercontent.com/riceharvest/agents-first-toolkit/main/crates/recurlsively/install.sh | sh
 ```
 
 ## Install (all crates at once)
