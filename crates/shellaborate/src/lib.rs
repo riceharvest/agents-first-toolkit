@@ -895,13 +895,9 @@ pub async fn run_batch_streamed(
 
     let mut final_results: Vec<StepResult> =
         results.lock().await.iter().flatten().cloned().collect();
-    // Declaration order for stable output.
-    final_results.sort_by_key(|r| {
-        steps
-            .iter()
-            .position(|s| s.id.as_deref() == Some(r.id.as_str()))
-            .unwrap_or(usize::MAX)
-    });
+    // Declaration order for stable output. The id->index map from the
+    // scheduler covers every step id; usize::MAX only if an id is missing.
+    final_results.sort_by_key(|r| idx.get(r.id.as_str()).copied().unwrap_or(usize::MAX));
     let ok = !final_results.is_empty()
         && final_results.iter().all(|r| r.exit == 0)
         && skipped.is_empty();
