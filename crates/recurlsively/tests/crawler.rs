@@ -201,6 +201,48 @@ async fn robots_disallow_is_respected() {
 }
 
 #[tokio::test]
+async fn robots_crawl_delay_paces_requests() {
+    // Regression for issue #2: a site declaring Crawl-delay must see at most
+    // one request per interval, regardless of --concurrency.
+    let mut routes = HashMap::new();
+    routes.insert(
+        "/robots.txt".to_owned(),
+        (
+            200,
+            vec![(
+                "body",
+                "User-agent: *\nCrawl-delay: 1\nDisallow:\n".to_owned(),
+            )],
+        ),
+    );
+    let index_page = page("home", &["/a", "/b"]);
+    routes.insert("/".to_owned(), (200, vec![("body", index_page)]));
+    routes.insert("/a".to_owned(), (200, vec![("body", page("a", &[]))]));
+    routes.insert("/b".to_owned(), (200, vec![("body", page("b", &[]))]));
+    let fixture = Fixture::start(routes);
+    let output = std::env::temp_dir().join(format!(
+        "recurlsively-cd-{}-{}",
+        std::process::id(),
+        fixture.addr.port()
+    ));
+    let (mut config, start) = test_config(output.clone(), &fixture.url("/"));
+    config.delay = Duration::from_millis(0); // only the robots gate paces
+    config.concurrency = 4;
+    let t0 = std::time::Instant::now();
+    let report = crawler::run(&config, std::slice::from_ref(&start))
+        .await
+        .expect("crawl succeeds");
+    let elapsed = t0.elapsed();
+    assert_eq!(report[0].report.pages_written, 3, "home + a + b");
+    // 3 page fetches + 1 robots fetch, >=1s apart each => well over 2s total.
+    assert!(
+        elapsed >= std::time::Duration::from_millis(2000),
+        "Crawl-delay: 1 must pace 4 requests to >= 2s total, took {elapsed:?}"
+    );
+    let _ = std::fs::remove_dir_all(&output);
+}
+
+#[tokio::test]
 async fn body_limit_is_enforced_as_terminal_error() {
     let mut routes = HashMap::new();
     routes.insert("/".to_owned(), (200, vec![("body", "x".repeat(100_000))]));
