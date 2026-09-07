@@ -12,6 +12,61 @@ use crate::robots::{RobotsCache, RobotsOutcome};
 use crate::state::StateStore;
 use crate::url_policy::UrlPolicy;
 
+/// Per-origin request pacing shared by every worker task of one crawl run.
+///
+/// Honors BOTH rate knobs:
+/// - `config.delay` (the `--delay` CLI flag, default 250ms): minimum interval
+///   between any two requests to the same origin.
+/// - robots.txt `Crawl-delay` (RFC 9309): overrides `--delay` for that origin
+///   when the site asks for a longer interval; the site's own request wins.
+///
+/// Before each fetch a worker reserves the next slot and sleeps until it.
+/// With concurrency N the gate naturally serializes to one request per
+/// interval while staying compatible with parallel workers.
+#[derive(Debug)]
+pub struct RateGate {
+    inner: std::sync::Mutex<GateState>,
+}
+
+#[derive(Debug)]
+struct GateState {
+    /// Milliseconds since UNIX epoch of the earliest permitted next request.
+    next_free_ms: i64,
+    /// Minimum interval in milliseconds.
+    interval_ms: i64,
+}
+
+impl RateGate {
+    pub fn new(interval: std::time::Duration) -> Self {
+        Self {
+            inner: std::sync::Mutex::new(GateState {
+                next_free_ms: 0,
+                interval_ms: interval.as_millis() as i64,
+            }),
+        }
+    }
+
+    /// Update the minimum interval (e.g. after robots.txt reports a
+    /// Crawl-delay). Only ever lengthens the interval within a run.
+    pub fn set_interval(&self, interval: std::time::Duration) {
+        let mut g = self.inner.lock().expect("rate gate lock");
+        let ms = interval.as_millis() as i64;
+        if ms > g.interval_ms {
+            g.interval_ms = ms;
+        }
+    }
+
+    /// Reserve the next request slot; returns how long to sleep before
+    /// sending (0 if immediately allowed).
+    pub fn reserve(&self) -> std::time::Duration {
+        let now = crate::robots::unix_ms() as i64;
+        let mut g = self.inner.lock().expect("rate gate lock");
+        let start = g.next_free_ms.max(now);
+        g.next_free_ms = start + g.interval_ms;
+        std::time::Duration::from_millis((start - now).max(0) as u64)
+    }
+}
+
 #[derive(Debug, Default, Clone, Serialize)]
 pub struct CrawlReport {
     pub pages_written: u64,
@@ -214,6 +269,10 @@ pub async fn run_single(
     let changed = Arc::new(AtomicU64::new(0));
     let unchanged = Arc::new(AtomicU64::new(0));
 
+    // Per-origin pacing: honors --delay and (later, once robots.txt is
+    // checked) the site's Crawl-delay. Shared by all worker tasks.
+    let rate_gate = Arc::new(RateGate::new(config.delay));
+
     loop {
         if stop.load(Ordering::SeqCst) {
             break;
@@ -259,6 +318,7 @@ pub async fn run_single(
                 lease,
                 changed.clone(),
                 unchanged.clone(),
+                Arc::clone(&rate_gate),
             )));
         }
         for handle in handles {
@@ -317,6 +377,7 @@ async fn process_lease(
     lease: crate::state::Lease,
     changed: Arc<AtomicU64>,
     unchanged: Arc<AtomicU64>,
+    rate_gate: Arc<RateGate>,
 ) -> Outcome {
     let state = match StateStore::open(output_dir.clone().join("state.sqlite")) {
         Ok(s) => s,
@@ -346,9 +407,17 @@ async fn process_lease(
         policy.origin().host(),
         policy.origin().port()
     );
-    let robots_outcome = RobotsCache::new()
-        .check(&fetcher, &origin_string, &path, config.ignore_robots)
-        .await;
+    let robots_outcome = {
+        // Reserve a rate slot before touching the origin (robots fetch
+        // included): honors --delay, and the site's Crawl-delay below.
+        let wait = rate_gate.reserve();
+        if !wait.is_zero() {
+            tokio::time::sleep(wait).await;
+        }
+        RobotsCache::new()
+            .check(&fetcher, &origin_string, &path, config.ignore_robots)
+            .await
+    };
     match robots_outcome {
         RobotsOutcome::Denied => {
             let _ = state.mark_skipped(lease.page_id, "robots_denied");
@@ -368,9 +437,25 @@ async fn process_lease(
         RobotsOutcome::NoRules | RobotsOutcome::Allowed(_) => {}
     }
 
+    // RFC 9309: the site's Crawl-delay wins when it asks for a longer
+    // interval than --delay. Applies to every subsequent request this run.
+    if let RobotsOutcome::Allowed(rules) = &robots_outcome {
+        if let Some(seconds) = rules.crawl_delay {
+            if seconds > 0.0 {
+                rate_gate.set_interval(std::time::Duration::from_secs_f64(seconds));
+            }
+        }
+    }
+
     let (stored_etag, stored_last_modified) = state
         .validators_for(&lease.canonical_url)
         .unwrap_or((None, None));
+    {
+        let wait = rate_gate.reserve();
+        if !wait.is_zero() {
+            tokio::time::sleep(wait).await;
+        }
+    }
     match fetcher
         .conditional_get(
             &lease.canonical_url,
