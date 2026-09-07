@@ -1,0 +1,24 @@
+case,exit_code,wall_ms,output_bytes,file_count,pages_fetched,ms_per_page,bytes_per_page,output_path,stderr,stdout_tail
+recurlsively,0,21.01231300184736,37650,13,0,0.0,0.0,/home/dario/recurlsively/bench/compare_out/recurlsively,,"{""totals"":{""pages_failed"":0,""pages_pending"":0,""pages_written"":0,""truncated"":false},""urls"":[{""changed"":0,""pages_failed"":0,""pages_pending"":0,""pages_skipped"":0,""pages_written"":0,""truncated"":false,""unchanged"":0,""url"":""http://localhost:8123/docs""}]}"
+wget,0,10.984369000652805,1451,6,0,0.0,0.0,/home/dario/recurlsively/bench/compare_out/wget,"Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)
+Failed to connect (hostname='localhost', errno=111)","HTTP response 200 OK [http://localhost:8123/docs/reference]
+URI content encoding = 'utf-8' (set by server response)
+URL '/docs/install' not followed (page requisites + level)
+URL '/docs/changelog' not followed (page requisites + level)
+URL '/docs/faq' not followed (page requisites + level)
+Downloaded: 6 files, 1.45K bytes, 0 redirects, 1 errors
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs/guide.html http://localhost:8123/docs/guide utf-8
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs/reference.html http://localhost:8123/docs/reference utf-8
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs/changelog.html http://localhost:8123/docs/changelog utf-8
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs/install.html http://localhost:8123/docs/install utf-8
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs/faq.html http://localhost:8123/docs/faq utf-8
+convert /home/dario/recurlsively/bench/compare_out/wget/localhost/docs.html http://localhost:8123/docs utf-8"
+curl_bs4,0,42.19479500170564,79,4,4,10.54869875042641,19.75,/home/dario/recurlsively/bench/compare_out/curl_bs4,,
+curl_html2text,0,39.770055998815224,120,4,4,9.942513999703806,30.0,/home/dario/recurlsively/bench/compare_out/curl_html2text,,
+curl_readability,0,43.37597099947743,37,4,4,10.843992749869358,9.25,/home/dario/recurlsively/bench/compare_out/curl_readability,,
+aria_bs4,0,3351.8184470012784,79,4,4,837.9546117503196,19.75,/home/dario/recurlsively/bench/compare_out/aria_bs4,,
