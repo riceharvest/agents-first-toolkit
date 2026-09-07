@@ -1170,7 +1170,7 @@ impl Fetcher {
                 .get(reqwest::header::LAST_MODIFIED)
                 .and_then(|v| v.to_str().ok())
                 .map(str::to_owned);
-            let body = read_bounded(response, max_body).await?;
+            let body = read_bounded(response, max_body, content_type.is_none()).await?;
             return Ok(Fetched {
                 final_url: current.to_string(),
                 status,
@@ -1207,9 +1207,11 @@ pub fn sniff_html_prefix(body: &[u8]) -> bool {
 async fn read_bounded(
     response: reqwest::Response,
     max_body: u64,
+    sniff: bool,
 ) -> Result<Vec<u8>, CurlosityError> {
     let mut body = Vec::new();
     let mut chunk_stream = response;
+    let mut sniffed = false;
     while let Some(chunk) = chunk_stream.chunk().await.map_err(|e| {
         if e.is_timeout() {
             CurlosityError::Timeout
@@ -1221,6 +1223,17 @@ async fn read_bounded(
             return Err(CurlosityError::BodyTooLarge { limit: max_body });
         }
         body.extend_from_slice(&chunk);
+        if sniff && !sniffed && body.len() >= SNIFF_LIMIT {
+            // Server omitted Content-Type: after the first SNIFF_LIMIT bytes,
+            // reject bodies that are clearly binary (not HTML-like and
+            // containing NUL) so a mislabeled stream is cut off early instead
+            // of being read to max_body. Plain text without an HTML marker
+            // still passes; declared content types are never sniffed.
+            sniffed = true;
+            if !sniff_html_prefix(&body) && body[..SNIFF_LIMIT.min(body.len())].contains(&0) {
+                return Err(CurlosityError::NotFetchable(None));
+            }
+        }
     }
     Ok(body)
 }
