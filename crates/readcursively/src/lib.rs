@@ -732,8 +732,9 @@ pub fn read_one(
         let t = truncate_chars(line, 2000);
         let entry = format!("{}|{}", i + 1, t);
         chars += entry.len() + 1;
-        if chars > limits.max_total_chars && limits.max_total_chars > 0 && display.len() > 100 {
-            // Only truncate very long single reads; searches stay intact.
+        if chars > limits.max_total_chars && limits.max_total_chars > 0 && !display.is_empty() {
+            // Honor the char cap for any read over it; always emit at least
+            // one line so a single oversized line still returns something.
             truncated = true;
             break;
         }
@@ -1411,5 +1412,44 @@ mod tests {
             assert!(r.error.as_ref().unwrap().contains("escapes root"));
         }
         let _ = r; // non-unix: no symlink, nothing to assert
+    }
+    #[tokio::test]
+    async fn total_chars_cap_truncates_few_long_lines() {
+        // Regression for issue #10: a read whose output exceeds the cap with
+        // fewer than 100 lines must still be truncated.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path();
+        let long_line = "x".repeat(5000);
+        std::fs::write(
+            root.join("wide.txt"),
+            format!("{long_line}\n{long_line}\n{long_line}\n"),
+        )
+        .unwrap();
+        let req = BatchRequest {
+            searches: vec![],
+            reads: vec![ReadRequest {
+                path: "wide.txt".into(),
+                offset: None,
+                limit: None,
+            }],
+            root: Some(root.to_string_lossy().into_owned()),
+            max_total_chars: Some(6000),
+            ..Default::default()
+        };
+        let res = batch(req).await.unwrap();
+        let r = &res.reads.as_ref().unwrap()[0];
+        assert_eq!(r.truncated, Some(true), "over-cap read must be truncated");
+        let emitted: usize = r
+            .display
+            .as_ref()
+            .unwrap()
+            .iter()
+            .map(|l| l.len() + 1)
+            .sum();
+        assert!(
+            emitted <= 6000 + 2001,
+            "cap must bound emitted chars, got {emitted}"
+        );
+        assert!(!r.display.as_ref().unwrap().is_empty());
     }
 }
