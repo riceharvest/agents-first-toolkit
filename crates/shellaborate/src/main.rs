@@ -99,7 +99,7 @@ fn hermes_tool_json() -> serde_json::Value {
                 "concurrency": { "type": "integer", "minimum": 1, "maximum": 50, "default": 6, "description": "Max branches executing in parallel. Queued steps wait on a semaphore; the batch never exceeds this many live child processes." },
                 "timeout_ms": { "type": "integer", "default": 30000, "description": "Default per-step timeout in ms. On expiry the step's whole process group is SIGKILLed, exit is reported as -1 with timeout:true. Override per step via step.timeout_ms." },
                 "keep_going": { "type": "boolean", "description": "Run independent branches after a failure (default false: on the first failure, all not-yet-scheduled steps are skipped and listed in `skipped`)" },
-                "allow_dangerous": { "type": "boolean", "description": "Permit denylisted destructive commands (rm -rf /, shutdown/reboot/halt/poweroff, init 0|6, mkfs*, dd of=/dev/*, forkbombs). Without it those requests exit 2 before anything runs." },
+                "allow_dangerous": { "type": "boolean", "description": "Permit denylisted destructive commands (rm -rf / or /*, shutdown/reboot/halt/poweroff, init 0|6, mkfs*, dd of=/dev/*, forkbombs). IMPORTANT: the denylist is a narrow best-effort net, not a sandbox — variants like `rm -rf ~`/`rm -rf $HOME`, `rm -rf /home`, `find / -delete`, or wipefs are NOT caught. Without allow_dangerous those requests exit 2 before anything runs; with it, command review is entirely your responsibility." },
                 "capture": {
                     "type": "array",
                     "description": "Artifact capture specs, applied after the batch finishes (works even when steps fail). Each spec: {path: glob pattern relative to invocation cwd, inline_max_bytes?: files below this size are inlined as text (default 65536, binaries are hash-only)}. Response gains an `artifacts` array: {path, size, sha256, content?, inlined}. Missing patterns are skipped silently; '..' in patterns is rejected.",
@@ -158,7 +158,7 @@ fn hermes_tool_json() -> serde_json::Value {
             "stdout/stderr are capped at 5 MiB per stream and flagged *_truncated.",
             "Environment is sanitized: only PATH/HOME/TEMP-ish vars pass through; inject via step.env.",
             "Lines that look like secrets in output are masked.",
-            "Dangerous commands are denied unless --allow-dangerous."
+            "Dangerous commands are denied unless --allow-dangerous. The denylist is a narrow best-effort net (see the allow_dangerous schema note): it catches rm -rf / and similar literal patterns, NOT variable/expansion variants — review commands yourself."
         ]
     })
 }
