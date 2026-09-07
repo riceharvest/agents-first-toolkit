@@ -946,7 +946,16 @@ pub fn capture_artifacts_in(
     let mut total_inlined = 0usize;
     for spec in specs {
         // Traversal guard: reject patterns that try to escape the base dir.
+        // Absolute paths must be rejected too: Path::join replaces the base
+        // entirely for absolute inputs, which would silently defeat the guard.
         let pattern = std::path::Path::new(&spec.path);
+        if pattern.is_absolute() {
+            anyhow::bail!(
+                "capture path {:?} is absolute (path traversal rejected); \
+                 use a path relative to the working directory",
+                spec.path
+            );
+        }
         if pattern
             .components()
             .any(|c| matches!(c, std::path::Component::ParentDir))
@@ -1466,6 +1475,19 @@ mod tests {
     fn capture_traversal_rejected() {
         assert!(capture_artifacts(&[spec("../secrets.txt")]).is_err());
         assert!(capture_artifacts(&[spec("a/../../etc/passwd")]).is_err());
+    }
+
+    #[test]
+    fn capture_absolute_path_rejected() {
+        // Path::join replaces the base for absolute inputs, so an absolute
+        // capture spec would silently read arbitrary files. Must be refused
+        // before any globbing happens (regression for issue #2).
+        assert!(capture_artifacts(&[spec("/etc/passwd")]).is_err());
+        let dir = tempfile::tempdir().unwrap();
+        let abs = dir.path().join("x.txt");
+        std::fs::write(&abs, "secret\n").unwrap();
+        let spec_abs = format!("{}", abs.display());
+        assert!(capture_artifacts_in(&[spec(&spec_abs)], dir.path()).is_err());
     }
 
     #[test]
