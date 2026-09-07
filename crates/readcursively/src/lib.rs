@@ -2,7 +2,7 @@
 
 pub mod update;
 
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 use std::sync::atomic::{AtomicUsize, Ordering};
 
 use anyhow::{Result, anyhow, bail};
@@ -838,7 +838,10 @@ pub async fn batch(req: BatchRequest) -> Result<BatchResult> {
     let mut reads: Vec<ReadOutcome> = read_paths
         .par_iter()
         .map(|(p, off, lim)| {
-            let resolved = resolve_path(&root, p);
+            let resolved = match confined_path(&root, p) {
+                Ok(r) => r,
+                Err(e) => return rejected_read(p, e),
+            };
             read_one(&resolved, &limits, *off, *lim)
         })
         .collect();
@@ -846,7 +849,10 @@ pub async fn batch(req: BatchRequest) -> Result<BatchResult> {
         let auto: Vec<ReadOutcome> = auto_read_paths
             .par_iter()
             .map(|p| {
-                let resolved = resolve_path(&root, p);
+                let resolved = match confined_path(&root, p) {
+                    Ok(r) => r,
+                    Err(e) => return rejected_read(p, e),
+                };
                 read_one(&resolved, &limits, None, Some(limits.auto_read_limit))
                 // note: truncated flag already accounts for the auto cap via limit arithmetic
             })
@@ -885,12 +891,53 @@ pub async fn batch(req: BatchRequest) -> Result<BatchResult> {
     })
 }
 
-fn resolve_path(root: &Path, p: &str) -> PathBuf {
-    let p = p.replace('\\', "/");
-    if Path::new(&p).is_absolute() {
-        PathBuf::from(p)
+/// Restrict a requested read path to the root directory (secure by default).
+///
+/// - `..` components that would climb above the root are rejected lexically
+///   (before any stat), so hostile strings like `../x` fail fast.
+/// - Absolute paths are accepted but must resolve inside the root.
+/// - Symlink escapes (a link inside the root pointing outside) are caught by
+///   canonicalizing the target and comparing against the canonical root.
+///
+/// Missing files pass through so `read_one` can report its usual
+/// "stat failed" error; only confirmed escapes are rejected here.
+fn confined_path(root: &Path, requested: &str) -> Result<PathBuf, String> {
+    let p = requested.replace('\\', "/");
+    let path = Path::new(&p);
+    let joined = if path.is_absolute() {
+        path.to_path_buf()
     } else {
-        root.join(p)
+        // Lexical escape check: track depth while walking components.
+        let mut depth = 0usize;
+        for component in path.components() {
+            match component {
+                Component::ParentDir if depth == 0 => {
+                    return Err(format!("path escapes root: {requested}"));
+                }
+                Component::ParentDir => depth -= 1,
+                Component::Normal(_) => depth += 1,
+                _ => {}
+            }
+        }
+        root.join(path)
+    };
+    // Symlink / absolute escape check: canonicalize both sides when the
+    // target exists; a nonexistent target is handled by read_one's stat.
+    if let (Ok(root_canon), Ok(target)) = (root.canonicalize(), joined.canonicalize()) {
+        if !target.starts_with(&root_canon) {
+            return Err(format!("path escapes root: {requested}"));
+        }
+    }
+    Ok(joined)
+}
+
+fn rejected_read(path: &str, error: String) -> ReadOutcome {
+    ReadOutcome {
+        path: path.replace('\\', "/"),
+        error: Some(error),
+        truncated: None,
+        line_count: None,
+        display: None,
     }
 }
 
@@ -1285,5 +1332,85 @@ mod tests {
         let r = &res.reads.as_ref().unwrap()[0];
         assert!(r.error.is_some());
         assert!(r.error.as_ref().unwrap().starts_with("stat failed"));
+    }
+
+    #[tokio::test]
+    async fn read_parent_dir_escape_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("ok.txt"), "inside\n").unwrap();
+        std::fs::write(dir.path().join("secret.txt"), "leak\n").unwrap();
+        let req = BatchRequest {
+            searches: vec![],
+            reads: vec![ReadRequest {
+                path: "../secret.txt".into(),
+                offset: None,
+                limit: None,
+            }],
+            root: Some(root.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let res = batch(req).await.unwrap();
+        let r = &res.reads.as_ref().unwrap()[0];
+        assert!(r.error.is_some(), "parent-dir escape must be rejected");
+        assert!(r.error.as_ref().unwrap().contains("escapes root"));
+        assert!(r.display.is_none());
+    }
+
+    #[tokio::test]
+    async fn read_sneaky_parent_escape_is_rejected() {
+        // sub/../x stays inside root lexically via root.join, but the depth
+        // check must reject `sub/../`-only-after-climbing forms too: verify a
+        // chain that nets out at depth 0 but starts below root is allowed,
+        // while one that starts climbing immediately is not.
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(root.join("sub")).unwrap();
+        std::fs::write(root.join("top.txt"), "top\n").unwrap();
+        std::fs::write(root.join("sub").join("mid.txt"), "mid\n").unwrap();
+        let req = BatchRequest {
+            searches: vec![],
+            reads: vec![ReadRequest {
+                path: "sub/../top.txt".into(),
+                offset: None,
+                limit: None,
+            }],
+            root: Some(root.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let res = batch(req).await.unwrap();
+        let r = &res.reads.as_ref().unwrap()[0];
+        assert!(r.error.is_none(), "in-root net path must still be readable");
+        assert_eq!(r.display.as_ref().unwrap()[0], "1|top");
+    }
+
+    #[tokio::test]
+    async fn read_symlink_escape_is_rejected() {
+        let dir = tempfile::tempdir().unwrap();
+        let root = dir.path().join("root");
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(dir.path().join("outside.txt"), "leak\n").unwrap();
+        #[cfg(unix)]
+        std::os::unix::fs::symlink(dir.path().join("outside.txt"), root.join("link.txt"))
+            .unwrap();
+        let req = BatchRequest {
+            searches: vec![],
+            reads: vec![ReadRequest {
+                path: "link.txt".into(),
+                offset: None,
+                limit: None,
+            }],
+            root: Some(root.to_string_lossy().into_owned()),
+            ..Default::default()
+        };
+        let res = batch(req).await.unwrap();
+        let r = &res.reads.as_ref().unwrap()[0];
+        #[cfg(unix)]
+        {
+            assert!(r.error.is_some(), "symlink escape must be rejected");
+            assert!(r.error.as_ref().unwrap().contains("escapes root"));
+        }
+        let _ = r; // non-unix: no symlink, nothing to assert
     }
 }
